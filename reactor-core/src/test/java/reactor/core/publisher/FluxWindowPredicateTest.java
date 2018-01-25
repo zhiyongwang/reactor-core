@@ -42,6 +42,77 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class FluxWindowPredicateTest extends
                                      FluxOperatorTest<String, Flux<String>> {
 
+	@Test
+	public void windowWhileNoEmptyWindows() {
+		Flux.just("ALPHA", "#", "BETA", "#")
+		    .windowWhile(s -> !"#".equals(s))
+		    .flatMap(Flux::collectList)
+		    .as(StepVerifier::create)
+		    .assertNext(w -> assertThat(w).containsExactly("ALPHA"))
+		    .assertNext(w -> assertThat(w).containsExactly("BETA"))
+		    .verifyComplete();
+	}
+
+	@Test
+	public void windowUntilNoEmptyWindows() {
+		Flux.just("ALPHA", "#", "BETA", "#")
+		    .windowUntil("#"::equals)
+		    .flatMap(Flux::collectList)
+		    .as(StepVerifier::create)
+		    .assertNext(w -> assertThat(w).containsExactly("ALPHA", "#"))
+		    .assertNext(w -> assertThat(w).containsExactly("BETA", "#"))
+		    .verifyComplete();
+	}
+
+	@Test
+	public void windowUntilCutBeforeNoEmptyWindows() {
+		Flux.just("ALPHA", "#", "BETA", "#")
+		    .windowUntil("#"::equals, true)
+		    .flatMap(Flux::collectList)
+		    .as(StepVerifier::create)
+		    .assertNext(w -> assertThat(w).containsExactly("ALPHA"))
+		    .assertNext(w -> assertThat(w).containsExactly("#", "BETA"))
+		    .assertNext(w -> assertThat(w).containsExactly("#"))
+		    .verifyComplete();
+	}
+
+	@Test
+	public void windowWhileIntentionallyEmptyWindows() {
+		Flux.just("ALPHA", "#", "BETA", "#", "#")
+		    .windowWhile(s -> !"#".equals(s))
+		    .flatMap(Flux::collectList)
+		    .as(StepVerifier::create)
+		    .assertNext(w -> assertThat(w).containsExactly("ALPHA"))
+		    .assertNext(w -> assertThat(w).containsExactly("BETA"))
+		    .assertNext(w -> assertThat(w).isEmpty())
+		    .verifyComplete();
+	}
+
+	@Test
+	public void windowUntilIntentionallyEmptyWindows() {
+		Flux.just("ALPHA", "#", "BETA", "#", "#")
+		    .windowUntil("#"::equals)
+		    .flatMap(Flux::collectList)
+		    .as(StepVerifier::create)
+		    .assertNext(w -> assertThat(w).containsExactly("ALPHA", "#"))
+		    .assertNext(w -> assertThat(w).containsExactly("BETA", "#"))
+		    .assertNext(w -> assertThat(w).containsExactly("#"))
+		    .verifyComplete();
+	}
+
+	@Test
+	public void windowUntilCutBeforeIntentionallyEmptyWindows() {
+		Flux.just("ALPHA", "#", "BETA", "#", "#")
+		    .windowUntil("#"::equals, true)
+		    .flatMap(Flux::collectList)
+		    .as(StepVerifier::create)
+		    .assertNext(w -> assertThat(w).containsExactly("ALPHA"))
+		    .assertNext(w -> assertThat(w).containsExactly("#", "BETA"))
+		    .assertNext(w -> assertThat(w).containsExactly("#"))
+		    .assertNext(w -> assertThat(w).containsExactly("#"))
+		    .verifyComplete();
+	}
+
 	@Override
 	protected Scenario<String, Flux<String>> defaultScenarioOptions(Scenario<String, Flux<String>> defaultOptions) {
 		return defaultOptions.shouldAssertPostTerminateState(false)
@@ -66,17 +137,13 @@ public class FluxWindowPredicateTest extends
 				scenario(f -> f.windowUntil(t -> true))
 						.receive(s -> s.buffer().subscribe(b -> assertThat(b).containsExactly(item(0))),
 								s -> s.buffer().subscribe(b -> assertThat(b).containsExactly(item(1))),
-								s -> s.buffer().subscribe(b -> assertThat(b).containsExactly(item(2))),
-								s -> s.buffer().subscribe(b -> assertThat(b).isEmpty())),
+								s -> s.buffer().subscribe(b -> assertThat(b).containsExactly(item(2)))),
 
-//				scenario(f -> f.windowUntil(t -> true, false, 1))
-//						.prefetch(1)
-//						.verifier(step -> step.consumeNextWith(s -> s.buffer().subscribe(b -> assertThat(b).containsExactly(item(0))))
-//						                      .consumeNextWith(s -> s.buffer().subscribe(b -> assertThat(b).containsExactly(item(1))))
-//						                      .consumeNextWith(s -> s.buffer().subscribe(b -> assertThat(b).containsExactly(item(2))))
-//						                      .thenRequest(3)
-//						                      .consumeNextWith(s -> s.buffer().subscribe(b -> assertThat(b).isEmpty()))
-//						                      .verifyComplete()),
+				scenario(f -> f.windowUntil(t -> true, false, 1))
+						.prefetch(1)
+						.receive(s -> s.buffer().subscribe(b -> assertThat(b).containsExactly(item(0))),
+								s -> s.buffer().subscribe(b -> assertThat(b).containsExactly(item(1))),
+						        s -> s.buffer().subscribe(b -> assertThat(b).containsExactly(item(2)))),
 
 				scenario(f -> f.windowUntil(t -> false))
 						.receive(s -> s.buffer().subscribe(b -> assertThat(b).containsExactly(item(0), item(1), item(2))))
@@ -476,7 +543,7 @@ public class FluxWindowPredicateTest extends
 		            .expectNext(Signal.complete()) //closing window opened by 3
 		            .expectNoEvent(Duration.ofMillis(10))
 		            .then(sp1::onComplete)
-		            .expectNext(Signal.complete()) //closing window opened by 4
+		            //remainder window, not emitted
 		            .expectComplete()
 		            .verify(Duration.ofSeconds(1));
 		assertThat(sp1.hasDownstreams()).isFalse();
@@ -527,8 +594,8 @@ public class FluxWindowPredicateTest extends
 		                        .windowWhile(s -> !s.equals("#"))
 		                        .flatMap(w -> w.count()))
 		            .expectNext(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L)
-		            .expectNext(0L) //"remainder" window
-	                .verifyComplete();
+	                //no "remainder" window
+		            .verifyComplete();
 	}
 
 	@Test
@@ -599,7 +666,7 @@ public class FluxWindowPredicateTest extends
 		                        .windowUntil(s -> s.equals("#"), true)
 		                        .flatMap(Flux::materialize)
 		                        .map(sig -> sig.isOnComplete() ? "END" : sig.get()))
-	                .expectNext("END")
+		            .expectNext("END")
 	                .expectNext("#", "red", "green", "END")
 	                .verifyComplete();
 	}
