@@ -36,6 +36,7 @@ import reactor.core.Scannable;
 import reactor.core.scheduler.Scheduler;
 import reactor.util.annotation.Nullable;
 import reactor.util.concurrent.Queues;
+import reactor.util.context.Context;
 
 /**
  * @param <T>
@@ -1011,19 +1012,22 @@ final class FluxReplay<T> extends ConnectableFlux<T> implements Scannable, Fusea
 		return history;
 	}
 
-	ReplaySubscriber<T> newState() {
+	ReplaySubscriber<T> newState(@Nullable Context cachedContext) {
 		if (scheduler != null) {
 			return new ReplaySubscriber<>(new SizeAndTimeBoundReplayBuffer<>(history,
 					ttl,
 					scheduler),
-					this);
+					this,
+					cachedContext);
 		}
 		if (history != Integer.MAX_VALUE) {
 			return new ReplaySubscriber<>(new SizeBoundReplayBuffer<>(history),
-					this);
+					this,
+					cachedContext);
 		}
 		return new ReplaySubscriber<>(new UnboundedReplayBuffer<>(Queues.SMALL_BUFFER_SIZE),
-					this);
+				this,
+				cachedContext);
 	}
 
 	@Override
@@ -1033,7 +1037,7 @@ final class FluxReplay<T> extends ConnectableFlux<T> implements Scannable, Fusea
 		for (; ; ) {
 			s = connection;
 			if (s == null) {
-				ReplaySubscriber<T> u = newState();
+				ReplaySubscriber<T> u = newState(null); //connect case can't support context caching
 				if (!CONNECTION.compareAndSet(this, null, u)) {
 					continue;
 				}
@@ -1057,7 +1061,7 @@ final class FluxReplay<T> extends ConnectableFlux<T> implements Scannable, Fusea
 		for (; ; ) {
 			ReplaySubscriber<T> c = connection;
 			if (scheduler != null && c != null && c.buffer.isExpired()) {
-				ReplaySubscriber<T> u = newState();
+				ReplaySubscriber<T> u = newState(actual.currentContext());
 				if (!CONNECTION.compareAndSet(this, c, u)) {
 					continue;
 				}
@@ -1065,7 +1069,7 @@ final class FluxReplay<T> extends ConnectableFlux<T> implements Scannable, Fusea
 				source.subscribe(u);
 			}
 			else if (c == null) {
-				ReplaySubscriber<T> u = newState();
+				ReplaySubscriber<T> u = newState(actual.currentContext());
 				if (!CONNECTION.compareAndSet(this, null, u)) {
 					continue;
 				}
@@ -1103,6 +1107,7 @@ final class FluxReplay<T> extends ConnectableFlux<T> implements Scannable, Fusea
 
 		final FluxReplay<T>   parent;
 		final ReplayBuffer<T> buffer;
+		final Context         cachedContext;
 
 		volatile Subscription s;
 		@SuppressWarnings("rawtypes")
@@ -1132,10 +1137,12 @@ final class FluxReplay<T> extends ConnectableFlux<T> implements Scannable, Fusea
 
 		@SuppressWarnings("unchecked")
 		ReplaySubscriber(ReplayBuffer<T> buffer,
-				FluxReplay<T> parent) {
+				FluxReplay<T> parent,
+				@Nullable Context cachedContext) {
 			this.buffer = buffer;
 			this.parent = parent;
 			this.subscribers = EMPTY;
+			this.cachedContext = cachedContext == null ? Context.empty() : cachedContext;
 		}
 
 		@Override
@@ -1289,6 +1296,11 @@ final class FluxReplay<T> extends ConnectableFlux<T> implements Scannable, Fusea
 
 		boolean tryConnect() {
 			return connected == 0 && CONNECTED.compareAndSet(this, 0, 1);
+		}
+
+		@Override
+		public Context currentContext() {
+			return cachedContext;
 		}
 
 		@Override

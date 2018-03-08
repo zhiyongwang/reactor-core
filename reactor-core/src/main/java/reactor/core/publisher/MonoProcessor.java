@@ -89,6 +89,8 @@ public final class MonoProcessor<O> extends Mono<O>
 	volatile int             state;
 	volatile int             wip;
 	volatile int             connected;
+	@Nullable
+	volatile Context         cachedContext;
 
 	MonoProcessor(@Nullable Publisher<? extends O> source) {
 		this(source, WaitStrategy.sleeping());
@@ -427,6 +429,7 @@ public final class MonoProcessor<O> extends Mono<O>
 				Operators.error(actual, new CancellationException("Mono has previously been cancelled"));
 				return;
 			}
+			cachedContext = actual.currentContext();
 			Processor<O, O> out = getOrStart();
 			if (out == NOOP_PROCESSOR) {
 				continue;
@@ -438,6 +441,11 @@ public final class MonoProcessor<O> extends Mono<O>
 		if (WIP.getAndIncrement(this) == 0) {
 			drainLoop();
 		}
+	}
+
+	@Override
+	public Context currentContext() {
+		return (cachedContext == null) ? Context.empty() : cachedContext;
 	}
 
 	@Override

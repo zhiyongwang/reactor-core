@@ -67,7 +67,7 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 			Signal<T> state = this.state;
 			if (state == EMPTY) {
 				//init or expired
-				CoordinatorSubscriber<T> newState = new CoordinatorSubscriber<>(this);
+				CoordinatorSubscriber<T> newState = new CoordinatorSubscriber<>(this, actual.currentContext());
 				if (STATE.compareAndSet(this, EMPTY, newState)) {
 					source.subscribe(newState);
 					CacheMonoSubscriber<T> inner = new CacheMonoSubscriber<>(actual, newState);
@@ -106,6 +106,7 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 	static final class CoordinatorSubscriber<T> implements InnerConsumer<T>, Signal<T> {
 
 		final MonoCacheTime<T> main;
+		final Context          cachedContext;
 
 		volatile Subscription subscription;
 		static final AtomicReferenceFieldUpdater<CoordinatorSubscriber, Subscription> S =
@@ -115,10 +116,11 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 		static final AtomicReferenceFieldUpdater<CoordinatorSubscriber, Operators.MonoSubscriber[]> SUBSCRIBERS =
 				AtomicReferenceFieldUpdater.newUpdater(CoordinatorSubscriber.class, Operators.MonoSubscriber[].class, "subscribers");
 
-		CoordinatorSubscriber(MonoCacheTime<T> main) {
+		CoordinatorSubscriber(MonoCacheTime<T> main, Context actualContext) {
 			this.main = main;
 			//noinspection unchecked
 			this.subscribers = EMPTY;
+			this.cachedContext = actualContext;
 		}
 
 		/**
@@ -269,6 +271,11 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 		@Override
 		public void onComplete() {
 			signalCached(Signal.complete());
+		}
+
+		@Override
+		public Context currentContext() {
+			return cachedContext;
 		}
 
 		@Nullable

@@ -29,6 +29,7 @@ import reactor.test.RaceTestUtils;
 import reactor.test.StepVerifier;
 import reactor.test.publisher.MonoOperatorTest;
 import reactor.test.publisher.TestPublisher;
+import reactor.util.context.Context;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -296,6 +297,36 @@ public class MonoCacheTimeTest extends MonoOperatorTest<String, String> {
 		System.gc();
 
 		assertThat(refCoordinator.get()).isNull();
+	}
+
+	@Test
+	public void contextFromFirstSubscriberCached() throws InterruptedException {
+		AtomicInteger contextFillCount = new AtomicInteger();
+		Mono<Context> cached = Mono.subscriberContext()
+		                           .cache(Duration.ofMillis(500))
+		                           .subscriberContext(ctx -> ctx.put("a", "GOOD" + contextFillCount.incrementAndGet()));
+
+		//at first pass, the context is captured
+		String cacheMiss = cached.map(x -> x.getOrDefault("a", "BAD")).block();
+		assertThat(cacheMiss).as("cacheMiss").isEqualTo("GOOD1");
+		assertThat(contextFillCount).as("cacheMiss").hasValue(1);
+
+		//at second subscribe, the Context fill attempt is still done, but ultimately ignored since Mono.subscriberContext() result is cached
+		String cacheHit = cached.map(x -> x.getOrDefault("a", "BAD")).block();
+		assertThat(cacheHit).as("cacheHit").isEqualTo("GOOD1"); //value from the cache
+		assertThat(contextFillCount).as("cacheHit").hasValue(2); //function was still invoked
+
+		Thread.sleep(500);
+
+		//at third subscribe, after the expiration delay, function is called for the 3rd time, but this time the resulting context is cached
+		String cacheExpired = cached.map(x -> x.getOrDefault("a", "BAD")).block();
+		assertThat(cacheExpired).as("cacheExpired").isEqualTo("GOOD3");
+		assertThat(contextFillCount).as("cacheExpired").hasValue(3);
+
+		//at fourth subscribe, function is called but ignored, the cached context is visible
+		String cachePostExpired = cached.map(x -> x.getOrDefault("a", "BAD")).block();
+		assertThat(cachePostExpired).as("cachePostExpired").isEqualTo("GOOD3");
+		assertThat(contextFillCount).as("cachePostExpired").hasValue(4);
 	}
 
 }

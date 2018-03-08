@@ -299,7 +299,7 @@ public class FluxReplayTest extends FluxOperatorTest<String, String> {
 		CoreSubscriber<Integer> actual = new LambdaSubscriber<>(null, e -> {}, null, null);
         FluxReplay<Integer> main = new FluxReplay<>(Flux.just(1), 2, 1000, Schedulers.single());
         FluxReplay.ReplayInner<Integer> test = new FluxReplay.ReplayInner<>(actual);
-        FluxReplay.ReplaySubscriber<Integer> parent = new FluxReplay.ReplaySubscriber<>(new FluxReplay.UnboundedReplayBuffer<>(10), main);
+        FluxReplay.ReplaySubscriber<Integer> parent = new FluxReplay.ReplaySubscriber<>(new FluxReplay.UnboundedReplayBuffer<>(10), main, null);
         parent.add(test);
         test.parent = parent;
         parent.buffer.replay(test);
@@ -324,7 +324,7 @@ public class FluxReplayTest extends FluxOperatorTest<String, String> {
 	@Test
     public void scanSubscriber() {
 		FluxReplay<Integer> parent = new FluxReplay<>(Flux.just(1), 2, 1000, Schedulers.single());
-        FluxReplay.ReplaySubscriber<Integer> test = new FluxReplay.ReplaySubscriber<>(new FluxReplay.UnboundedReplayBuffer<>(10), parent);
+        FluxReplay.ReplaySubscriber<Integer> test = new FluxReplay.ReplaySubscriber<>(new FluxReplay.UnboundedReplayBuffer<>(10), parent, null);
         Subscription sub = Operators.emptySubscription();
         test.onSubscribe(sub);
 
